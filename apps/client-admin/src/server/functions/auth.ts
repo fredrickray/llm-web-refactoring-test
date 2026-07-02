@@ -11,7 +11,6 @@ export const loginAdmin = createServerFn({ method: "POST" })
 	.handler(async ({ data }) => {
 		const client = getGrpcClient();
 
-		// First, attempt to login
 		const { response: loginResponse } = await client.auth.login({
 			email: data.email,
 			password: data.password,
@@ -21,7 +20,6 @@ export const loginAdmin = createServerFn({ method: "POST" })
 			throw new Error(loginResponse.error || "Login failed");
 		}
 
-		// Validate the session to get user details including role
 		const { response: validateResponse } = await client.auth.validateSession({
 			sessionToken: loginResponse.sessionToken,
 		});
@@ -30,19 +28,17 @@ export const loginAdmin = createServerFn({ method: "POST" })
 			throw new Error("Failed to validate session");
 		}
 
-		// Check if user has admin or moderator role
 		const role = validateResponse.role;
 		if (role !== "admin" && role !== "moderator") {
-			// Logout the session since they don't have admin access
 			await client.auth.logout({ sessionToken: loginResponse.sessionToken });
 			throw new Error("Access denied. Admin or moderator role required.");
 		}
 
-		// Store admin session in cookie
 		await setAdminSessionData({
 			userId: loginResponse.userId,
 			username: validateResponse.username,
 			role: role as "admin" | "moderator",
+			sessionToken: loginResponse.sessionToken,
 		});
 
 		return { success: true, userId: loginResponse.userId, role };
@@ -62,17 +58,12 @@ export const getCurrentAdmin = createServerFn().handler(async () => {
 	const session = await getAdminSessionData();
 	if (!session) return null;
 
-	const sessionToken = await getAdminGrpcSessionToken();
-	if (!sessionToken) {
-		await clearAdminSessionData();
-		return null;
-	}
+	const sessionToken = session.sessionToken;
 
 	try {
 		const client = getGrpcClient();
 		const { response } = await client.auth.getCurrentUser({ sessionToken });
 
-		// Double-check role from the server
 		if (response.role !== "admin" && response.role !== "moderator") {
 			await clearAdminSessionData();
 			return null;

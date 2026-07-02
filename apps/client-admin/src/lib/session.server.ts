@@ -4,15 +4,24 @@ export interface AdminSessionData {
 	userId: string;
 	username: string;
 	role: "admin" | "moderator";
+	/** API-issued JWT from login — never re-signed by the BFF */
+	sessionToken: string;
 }
 
-// Session secret - in production, use environment variable
-const SESSION_SECRET =
-	process.env.SESSION_SECRET || "chirp-admin-session-secret-key-at-least-32-chars";
+function getSessionSecret(): string {
+	const secret = process.env.SESSION_SECRET;
+	if (secret) {
+		return secret;
+	}
+	if (process.env.NODE_ENV === "production") {
+		throw new Error("SESSION_SECRET environment variable is required in production");
+	}
+	return "chirp-admin-session-secret-key-at-least-32-chars";
+}
 
 export function useAdminSession() {
 	return useSession<AdminSessionData>({
-		password: SESSION_SECRET,
+		password: getSessionSecret(),
 		name: "chirp-admin-session",
 		cookie: {
 			httpOnly: true,
@@ -25,10 +34,9 @@ export function useAdminSession() {
 
 export async function getAdminSessionData(): Promise<AdminSessionData | null> {
 	const session = await useAdminSession();
-	if (!session.data.userId || !session.data.role) {
+	if (!session.data.userId || !session.data.role || !session.data.sessionToken) {
 		return null;
 	}
-	// Verify role is admin or moderator
 	if (session.data.role !== "admin" && session.data.role !== "moderator") {
 		return null;
 	}

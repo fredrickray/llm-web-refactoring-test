@@ -1,4 +1,8 @@
 import { createHash } from "crypto";
+import bcrypt from "bcryptjs";
+
+const BCRYPT_COST = process.env.VITEST ? 4 : 12;
+const LEGACY_SALT = "salt";
 
 /**
  * Generate a simple ID
@@ -8,20 +12,44 @@ export function generateId(): string {
 }
 
 /**
- * Hash password using SHA-256 (in production, use bcrypt)
+ * Legacy SHA-256 hash — retained only for verifying and migrating existing users.
+ * @deprecated Vulnerable to brute-force; do not use for new passwords.
  */
-export async function hashPassword(password: string): Promise<string> {
+export function legacySha256Hash(password: string): string {
 	const hash = createHash("sha256");
-	hash.update(password + "salt");
+	hash.update(password + LEGACY_SALT);
 	return hash.digest("hex");
 }
 
+/** Detect legacy SHA-256 hashes (64 hex chars, no bcrypt prefix). */
+export function isLegacySha256Hash(hashedPassword: string): boolean {
+	return /^[a-f0-9]{64}$/i.test(hashedPassword);
+}
+
 /**
- * Verify password against hash
+ * Hash password using bcrypt (secure, adaptive cost).
  */
-export async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
-	const hash = await hashPassword(password);
-	return hash === hashedPassword;
+export async function hashPassword(password: string): Promise<string> {
+	return bcrypt.hash(password, BCRYPT_COST);
+}
+
+/**
+ * Verify password against hash. Supports legacy SHA-256 (with upgrade flag) and bcrypt.
+ */
+export async function verifyPassword(
+	password: string,
+	hashedPassword: string,
+): Promise<{ valid: boolean; needsUpgrade: boolean }> {
+	if (isLegacySha256Hash(hashedPassword)) {
+		const legacyHash = legacySha256Hash(password);
+		return {
+			valid: legacyHash === hashedPassword,
+			needsUpgrade: legacyHash === hashedPassword,
+		};
+	}
+
+	const valid = await bcrypt.compare(password, hashedPassword);
+	return { valid, needsUpgrade: false };
 }
 
 /**

@@ -1,7 +1,21 @@
 import type { GrpcSessionPayload } from "@chirp/shared-types";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.GRPC_JWT_SECRET || "chirp-grpc-jwt-secret-key-at-least-32-chars";
+const DEV_JWT_SECRET = "chirp-grpc-jwt-secret-key-at-least-32-chars";
+
+/**
+ * Returns the JWT secret, requiring an env var in production.
+ */
+export function getJwtSecret(): string {
+	const secret = process.env.GRPC_JWT_SECRET;
+	if (secret) {
+		return secret;
+	}
+	if (process.env.NODE_ENV === "production") {
+		throw new Error("GRPC_JWT_SECRET environment variable is required in production");
+	}
+	return DEV_JWT_SECRET;
+}
 
 export interface AuthContext {
 	userId: string;
@@ -14,19 +28,19 @@ export interface AuthContext {
  */
 export function validateSessionToken(token: string): AuthContext {
 	try {
-		const decoded = jwt.verify(token, JWT_SECRET) as GrpcSessionPayload;
+		const decoded = jwt.verify(token, getJwtSecret()) as GrpcSessionPayload;
 		return {
 			userId: decoded.userId,
 			username: decoded.username,
 			role: decoded.role,
 		};
-	} catch (error) {
+	} catch {
 		throw new Error("Invalid or expired session token");
 	}
 }
 
 /**
- * Creates a session token from auth context
+ * Creates a session token from auth context — only the API should call this.
  */
 export function createSessionToken(
 	context: AuthContext,
@@ -38,7 +52,7 @@ export function createSessionToken(
 			username: context.username,
 			role: context.role,
 		},
-		JWT_SECRET,
+		getJwtSecret(),
 		{ expiresIn: expiresInSeconds },
 	);
 }
@@ -70,5 +84,3 @@ export function requireSuperAdmin(context: AuthContext): void {
 		throw new Error("Super admin access required");
 	}
 }
-
-export { JWT_SECRET };

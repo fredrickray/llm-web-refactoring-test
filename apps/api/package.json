@@ -24,12 +24,14 @@
 		"@protobuf-ts/grpc-backend": "^2.9.4",
 		"@protobuf-ts/runtime": "^2.9.4",
 		"@protobuf-ts/runtime-rpc": "^2.9.4",
+		"bcryptjs": "^3.0.2",
 		"drizzle-orm": "^0.45.1",
 		"elysia": "^1.2.25",
 		"@elysiajs/node": "^1.2.25",
 		"jsonwebtoken": "^9.0.2"
 	},
 	"devDependencies": {
+		"@types/bcryptjs": "^2.4.6",
 		"@types/jsonwebtoken": "^9.0.9",
 		"@types/node": "^22.10.2",
 		"drizzle-kit": "^0.31.8",

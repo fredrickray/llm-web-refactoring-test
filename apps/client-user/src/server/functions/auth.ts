@@ -20,10 +20,11 @@ export const registerUser = createServerFn({ method: "POST" })
 			throw new Error(response.error || "Registration failed");
 		}
 
-		// Store session in cookie
+		// Store API-issued session token in encrypted cookie — BFF does not re-sign JWTs
 		await setSessionData({
 			userId: response.userId,
 			username: data.username,
+			sessionToken: response.sessionToken,
 		});
 
 		return { success: true, userId: response.userId };
@@ -43,7 +44,6 @@ export const loginUser = createServerFn({ method: "POST" })
 			throw new Error(response.error || "Login failed");
 		}
 
-		// We need to get the username for the session - validate the returned token
 		const { response: validateResponse } = await client.auth.validateSession({
 			sessionToken: response.sessionToken,
 		});
@@ -52,10 +52,10 @@ export const loginUser = createServerFn({ method: "POST" })
 			throw new Error("Failed to validate session");
 		}
 
-		// Store session in cookie
 		await setSessionData({
 			userId: response.userId,
 			username: validateResponse.username,
+			sessionToken: response.sessionToken,
 		});
 
 		return { success: true, userId: response.userId };
@@ -75,11 +75,7 @@ export const getCurrentUser = createServerFn().handler(async () => {
 	const session = await getSessionData();
 	if (!session) return null;
 
-	const sessionToken = await getGrpcSessionToken();
-	if (!sessionToken) {
-		await clearSessionData();
-		return null;
-	}
+	const sessionToken = session.sessionToken;
 
 	try {
 		const client = getGrpcClient();

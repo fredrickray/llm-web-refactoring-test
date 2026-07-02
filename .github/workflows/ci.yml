@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate proto
+        run: pnpm run proto:generate
+
+      - name: Typecheck
+        run: pnpm exec turbo run typecheck --filter='...[origin/main]'
+
+      - name: Lint
+        run: pnpm exec turbo run lint --filter='...[origin/main]'
+
+      - name: Unit tests
+        run: pnpm exec turbo run test:unit --filter='...[origin/main]'
+
+      - name: Build
+        run: pnpm exec turbo run build --filter='...[origin/main]'

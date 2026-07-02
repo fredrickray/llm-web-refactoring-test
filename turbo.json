@@ -27,13 +27,21 @@
 			"dependsOn": ["^build"]
 		},
 		"test:e2e": {
-			"dependsOn": ["build"]
+			"dependsOn": ["build"],
+			"cache": false
 		},
 		"proto:generate": {
 			"outputs": ["generated/**"]
 		},
-		"db:generate": {},
-		"db:migrate": {},
-		"db:seed": {}
+		"db:generate": {
+			"cache": false
+		},
+		"db:migrate": {
+			"cache": false
+		},
+		"db:seed": {
+			"cache": false,
+			"dependsOn": ["db:migrate"]
+		}
 	}
 }

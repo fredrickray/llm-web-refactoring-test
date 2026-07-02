@@ -36,7 +36,7 @@ export async function registerUser(input: RegisterInput) {
 		throw new Error("Username already taken");
 	}
 
-	// Hash password
+	// Hash password with bcrypt
 	const passwordHash = await hashPassword(input.password);
 
 	// Create user
@@ -73,10 +73,18 @@ export async function loginUser(input: LoginInput) {
 		throw new Error(`Account banned: ${user.bannedReason || "No reason provided"}`);
 	}
 
-	// Verify password
-	const valid = await verifyPassword(input.password, user.passwordHash);
+	// Verify password (supports legacy SHA-256 with transparent bcrypt upgrade)
+	const { valid, needsUpgrade } = await verifyPassword(input.password, user.passwordHash);
 	if (!valid) {
 		throw new Error("Invalid email or password");
+	}
+
+	if (needsUpgrade) {
+		const upgradedHash = await hashPassword(input.password);
+		await db
+			.update(users)
+			.set({ passwordHash: upgradedHash, updatedAt: new Date() })
+			.where(eq(users.id, user.id));
 	}
 
 	// Create session token

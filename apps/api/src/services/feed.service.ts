@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
+import { attachPostCounts, batchPostCounts } from "./post-counts.util";
 
-const { posts, users, likes, comments, follows } = schema;
+const { posts, users, follows } = schema;
 
 interface FeedOptions {
 	limit?: number;
@@ -9,49 +10,16 @@ interface FeedOptions {
 	userId?: string;
 }
 
-async function getPostCounts(postId: string, userId?: string) {
-	const likesResult = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(likes)
-		.where(eq(likes.postId, postId))
-		.get();
-
-	const commentsResult = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(comments)
-		.where(eq(comments.postId, postId))
-		.get();
-
-	let isLiked = false;
-	if (userId) {
-		const likeStatus = await db
-			.select()
-			.from(likes)
-			.where(and(eq(likes.postId, postId), eq(likes.userId, userId)))
-			.get();
-		isLiked = !!likeStatus;
-	}
-
-	return {
-		likeCount: likesResult?.count || 0,
-		commentCount: commentsResult?.count || 0,
-		isLiked,
-	};
-}
-
 export async function getHomeFeed(userId: string, options: FeedOptions = {}) {
 	const limit = options.limit || 20;
 	const offset = options.offset || 0;
 
-	// Get users that the current user follows
 	const following = await db
 		.select({ followingId: follows.followingId })
 		.from(follows)
 		.where(eq(follows.followerId, userId));
 
 	const followingIds = following.map((f) => f.followingId);
-
-	// Include the user's own posts as well
 	const userIds = [...followingIds, userId];
 
 	if (userIds.length === 0) {
@@ -78,14 +46,11 @@ export async function getHomeFeed(userId: string, options: FeedOptions = {}) {
 		.limit(limit)
 		.offset(offset);
 
-	const postsWithCounts = await Promise.all(
-		result.map(async (post) => {
-			const counts = await getPostCounts(post.id, userId);
-			return { ...post, ...counts };
-		}),
+	const countsMap = await batchPostCounts(
+		result.map((p) => p.id),
+		userId,
 	);
-
-	return postsWithCounts;
+	return attachPostCounts(result, countsMap);
 }
 
 export async function getExploreFeed(options: FeedOptions = {}) {
@@ -111,12 +76,9 @@ export async function getExploreFeed(options: FeedOptions = {}) {
 		.limit(limit)
 		.offset(offset);
 
-	const postsWithCounts = await Promise.all(
-		result.map(async (post) => {
-			const counts = await getPostCounts(post.id, options.userId);
-			return { ...post, ...counts };
-		}),
+	const countsMap = await batchPostCounts(
+		result.map((p) => p.id),
+		options.userId,
 	);
-
-	return postsWithCounts;
+	return attachPostCounts(result, countsMap);
 }

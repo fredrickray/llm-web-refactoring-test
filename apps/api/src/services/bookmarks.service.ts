@@ -1,21 +1,20 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "../db";
 import { generateId } from "./utils";
+import { attachPostCounts, batchPostCounts } from "./post-counts.util";
 
-const { bookmarks, posts, users, likes } = schema;
+const { bookmarks, posts, users } = schema;
 
 /**
  * Toggle bookmark for a post (create if not exists, delete if exists)
  */
 export async function toggleBookmark(postId: string, userId: string) {
-	// Verify post exists
 	const post = await db.select().from(posts).where(eq(posts.id, postId)).get();
 
 	if (!post) {
 		throw new Error("Post not found");
 	}
 
-	// Check if already bookmarked
 	const existingBookmark = await db
 		.select()
 		.from(bookmarks)
@@ -23,18 +22,16 @@ export async function toggleBookmark(postId: string, userId: string) {
 		.get();
 
 	if (existingBookmark) {
-		// Remove bookmark
 		await db.delete(bookmarks).where(eq(bookmarks.id, existingBookmark.id));
 		return { bookmarked: false };
-	} else {
-		// Add bookmark
-		await db.insert(bookmarks).values({
-			id: generateId(),
-			postId,
-			userId,
-		});
-		return { bookmarked: true };
 	}
+
+	await db.insert(bookmarks).values({
+		id: generateId(),
+		postId,
+		userId,
+	});
+	return { bookmarked: true };
 }
 
 /**
@@ -59,7 +56,6 @@ export async function getBookmarkedPosts(
 	limit = 20,
 	offset = 0,
 ) {
-	// Get bookmarked post IDs
 	const bookmarkedPosts = await db
 		.select({
 			postId: bookmarks.postId,
@@ -75,62 +71,36 @@ export async function getBookmarkedPosts(
 		return [];
 	}
 
-	// Get full post details
-	const postsWithDetails = await Promise.all(
-		bookmarkedPosts.map(async (bookmark) => {
-			const post = await db
-				.select({
-					id: posts.id,
-					content: posts.content,
-					createdAt: posts.createdAt,
-					updatedAt: posts.updatedAt,
-					author: {
-						id: users.id,
-						username: users.username,
-						displayName: users.displayName,
-						avatarUrl: users.avatarUrl,
-					},
-				})
-				.from(posts)
-				.leftJoin(users, eq(posts.authorId, users.id))
-				.where(eq(posts.id, bookmark.postId))
-				.get();
+	const postIds = bookmarkedPosts.map((b) => b.postId);
 
+	const postRows = await db
+		.select({
+			id: posts.id,
+			content: posts.content,
+			createdAt: posts.createdAt,
+			updatedAt: posts.updatedAt,
+			author: {
+				id: users.id,
+				username: users.username,
+				displayName: users.displayName,
+				avatarUrl: users.avatarUrl,
+			},
+		})
+		.from(posts)
+		.leftJoin(users, eq(posts.authorId, users.id))
+		.where(inArray(posts.id, postIds));
+
+	const postMap = new Map(postRows.map((p) => [p.id, p]));
+	const countsMap = await batchPostCounts(postIds, requesterId);
+
+	return bookmarkedPosts
+		.map((bookmark) => {
+			const post = postMap.get(bookmark.postId);
 			if (!post) return null;
-
-			// Get like count
-			const likeCountResult = await db
-				.select({ count: sql<number>`count(*)` })
-				.from(likes)
-				.where(eq(likes.postId, post.id))
-				.get();
-
-			// Get comment count
-			const commentCountResult = await db
-				.select({ count: sql<number>`count(*)` })
-				.from(schema.comments)
-				.where(eq(schema.comments.postId, post.id))
-				.get();
-
-			// Check if requester liked this post
-			let isLiked = false;
-			if (requesterId) {
-				const likeStatus = await db
-					.select()
-					.from(likes)
-					.where(and(eq(likes.postId, post.id), eq(likes.userId, requesterId)))
-					.get();
-				isLiked = !!likeStatus;
-			}
-
 			return {
 				...post,
-				likeCount: likeCountResult?.count || 0,
-				commentCount: commentCountResult?.count || 0,
-				isLiked,
+				...countsMap.get(post.id)!,
 			};
-		}),
-	);
-
-	return postsWithDetails.filter((p) => p !== null);
+		})
+		.filter((p) => p !== null);
 }

@@ -1,9 +1,10 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "../db";
 import { processMentions } from "./mentions.service";
+import { attachPostCounts, batchPostCounts } from "./post-counts.util";
 import { generateId } from "./utils";
 
-const { posts, users, likes, comments } = schema;
+const { posts, users } = schema;
 
 export interface CreatePostInput {
 	content: string;
@@ -23,33 +24,8 @@ export interface GetPostsOptions {
 }
 
 async function getPostCounts(postId: string, userId?: string) {
-	const likesResult = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(likes)
-		.where(eq(likes.postId, postId))
-		.get();
-
-	const commentsResult = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(comments)
-		.where(eq(comments.postId, postId))
-		.get();
-
-	let isLiked = false;
-	if (userId) {
-		const likeStatus = await db
-			.select()
-			.from(likes)
-			.where(and(eq(likes.postId, postId), eq(likes.userId, userId)))
-			.get();
-		isLiked = !!likeStatus;
-	}
-
-	return {
-		likeCount: likesResult?.count || 0,
-		commentCount: commentsResult?.count || 0,
-		isLiked,
-	};
+	const countsMap = await batchPostCounts([postId], userId);
+	return countsMap.get(postId)!;
 }
 
 export async function createPost(input: CreatePostInput) {
@@ -181,14 +157,11 @@ export async function getPosts(options: GetPostsOptions = {}) {
 		.limit(limit)
 		.offset(offset);
 
-	const postsWithCounts = await Promise.all(
-		result.map(async (post) => {
-			const counts = await getPostCounts(post.id, options.userId);
-			return { ...post, ...counts };
-		}),
+	const countsMap = await batchPostCounts(
+		result.map((p) => p.id),
+		options.userId,
 	);
-
-	return postsWithCounts;
+	return attachPostCounts(result, countsMap);
 }
 
 export async function getUserPosts(username: string, userId?: string) {
@@ -216,12 +189,9 @@ export async function getUserPosts(username: string, userId?: string) {
 		.where(eq(posts.authorId, user.id))
 		.orderBy(desc(posts.createdAt));
 
-	const postsWithCounts = await Promise.all(
-		result.map(async (post) => {
-			const counts = await getPostCounts(post.id, userId);
-			return { ...post, ...counts };
-		}),
+	const countsMap = await batchPostCounts(
+		result.map((p) => p.id),
+		userId,
 	);
-
-	return postsWithCounts;
+	return attachPostCounts(result, countsMap);
 }

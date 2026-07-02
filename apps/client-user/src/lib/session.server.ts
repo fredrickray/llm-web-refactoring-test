@@ -3,14 +3,24 @@ import { useSession } from "@tanstack/react-start/server";
 export interface SessionData {
 	userId: string;
 	username: string;
+	/** API-issued JWT from login/register — never re-signed by the BFF */
+	sessionToken: string;
 }
 
-// Session secret - in production, use environment variable
-const SESSION_SECRET = process.env.SESSION_SECRET || "chirp-session-secret-key-at-least-32-chars";
+function getSessionSecret(): string {
+	const secret = process.env.SESSION_SECRET;
+	if (secret) {
+		return secret;
+	}
+	if (process.env.NODE_ENV === "production") {
+		throw new Error("SESSION_SECRET environment variable is required in production");
+	}
+	return "chirp-session-secret-key-at-least-32-chars";
+}
 
 export function useAppSession() {
 	return useSession<SessionData>({
-		password: SESSION_SECRET,
+		password: getSessionSecret(),
 		name: "chirp-session",
 		cookie: {
 			httpOnly: true,
@@ -23,7 +33,7 @@ export function useAppSession() {
 
 export async function getSessionData(): Promise<SessionData | null> {
 	const session = await useAppSession();
-	if (!session.data.userId) {
+	if (!session.data.userId || !session.data.sessionToken) {
 		return null;
 	}
 	return session.data as SessionData;
